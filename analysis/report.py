@@ -41,7 +41,8 @@ def executive_summary(s: Summary, builder: str, market: str | None, n_sources: i
 
 
 def write_report(path: Path, *, builder: str, market: str | None, days: int, summary: Summary,
-                 status: dict[str, tuple[int, str]], engine: str, synthetic: bool = False) -> None:
+                 status: dict[str, tuple[int, str]], engine: str, synthetic: bool = False,
+                 items: list[Item] | None = None) -> None:
     L: list[str] = []
     title = f"# Market Sentiment Report: {builder}" + (f" — {market}" if market else "")
     L += [title, "",
@@ -79,9 +80,14 @@ def write_report(path: Path, *, builder: str, market: str | None, days: int, sum
     else:
         L += ["_No competitor builders were mentioned._", ""]
 
-    L += ["## 6. Source Breakdown", "", "| Source | Items collected | Status |", "|---|---|---|"]
+    voice: dict[str, Counter] = {}
+    for it in items or []:
+        voice.setdefault(it.source, Counter())[it.voice] += 1
+    L += ["## 6. Source Breakdown", "",
+          "| Source | Items collected | Customer voice | Promotional (excluded) | Status |", "|---|---|---|---|---|"]
     for src, (cnt, msg) in status.items():
-        L.append(f"| {src} | {cnt} | {msg} |")
+        v = voice.get(src, Counter())
+        L.append(f"| {src} | {cnt} | {v['customer']} | {v['promotional']} | {msg} |")
     L += ["", f"**Total collected:** {sum(c for c, _ in status.values())} · **Analyzed (relevant):** {summary.total}", ""]
     L += ["## 7. Raw Data Export", "", "All collected items are in the CSV saved next to this report "
           "(author identities are never collected; @handles, emails, phone numbers and street addresses are redacted).", ""]
@@ -91,10 +97,10 @@ def write_report(path: Path, *, builder: str, market: str | None, days: int, sum
 def write_csv(path: Path, items: list[Item], analyses: dict[str, object] | None = None) -> None:
     with path.open("w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
-        w.writerow(["source", "item_id", "kind", "created_at", "rating", "likes", "replies", "url", "text", "analyzed_overall"])
+        w.writerow(["source", "item_id", "kind", "created_at", "rating", "likes", "replies", "url", "voice", "text", "analyzed_overall"])
         for it in items:
             a = analyses.get(it.item_id) if analyses else None
             w.writerow([it.source, it.item_id, it.kind, it.created_at.isoformat() if it.created_at else "",
                         it.rating if it.rating is not None else "", it.likes if it.likes is not None else "",
-                        it.replies if it.replies is not None else "", it.url or "", it.text,
+                        it.replies if it.replies is not None else "", it.url or "", it.voice, it.text,
                         a.overall if a else ""])

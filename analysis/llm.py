@@ -21,7 +21,9 @@ For EACH numbered item return JSON. Only judge what the text actually says about
 
 Dimensions (use these exact keys): {json.dumps(DIMENSIONS)}
 
-Return {{"items": [{{"i": <number>, "relevant": bool, "overall": "positive|neutral|negative",
+Also classify each item's "voice": "customer" (a real buyer/owner/prospect/neighbor sharing an experience or opinion) or
+"promotional" (the builder, a sales rep, a real-estate agent or listing marketing: listings, incentives, events, ads, ribbon cuttings).
+Return {{"items": [{{"i": <number>, "voice": "customer|promotional", "relevant": bool, "overall": "positive|neutral|negative",
  "dimensions": {{"<key>": {{"sentiment": "positive|neutral|negative",
                            "quote": "<verbatim excerpt copied exactly from the item, max 200 chars>"}}}},
  "praise_themes": ["short noun phrase", ...], "complaint_themes": ["short noun phrase", ...],
@@ -59,7 +61,9 @@ async def analyze(items: list[Item], builder: str) -> list[ItemAnalysis]:
                 it = batch[int(row["i"])]
             except (KeyError, ValueError, IndexError):
                 continue
-            if not row.get("relevant", True):
+            if row.get("voice") == "promotional":
+                it.voice = "promotional"          # LLM overrides the heuristic tag
+            if not row.get("relevant", True) or it.voice == "promotional":
                 continue
             dims = {}
             for key, d in (row.get("dimensions") or {}).items():

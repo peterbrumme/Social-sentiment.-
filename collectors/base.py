@@ -29,6 +29,7 @@ class Item:
     likes: int | None = None
     replies: int | None = None
     url: str | None = None           # only set when the URL cannot identify the author
+    voice: str = "customer"          # customer | promotional (brand/agent/listing marketing)
     extra: dict[str, Any] = field(default_factory=dict)
 
 

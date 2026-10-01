@@ -74,9 +74,13 @@ async def amain(args) -> int:
         items, status = await collect_all(args.builder, args.market, args.days, args.limit)
 
     analyses, engine = ([], "n/a")
+    customer = [i for i in items if i.voice == "customer"]
     if items:
-        print(f"Analyzing {len(items)} items…")
-        analyses, engine = await analyze(items, args.builder, args.engine)
+        print(f"Analyzing {len(customer)} customer-voice items ({len(items) - len(customer)} promotional excluded)…")
+    if customer:
+        analyses, engine = await analyze(customer, args.builder, args.engine)
+    # the LLM may re-label items it judges promotional; those drop out of the scores too
+    analyses = [a for a in analyses if a.item.voice == "customer"]
     summary = summarize(analyses)
 
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -84,7 +88,7 @@ async def amain(args) -> int:
     base = REPORTS / f"{slug}_{stamp}"
     REPORTS.mkdir(exist_ok=True)
     write_report(base.with_suffix(".md"), builder=args.builder, market=args.market, days=args.days, summary=summary,
-                 status=status, engine=engine, synthetic=args.sample_data)
+                 status=status, engine=engine, synthetic=args.sample_data, items=items)
     write_csv(base.with_suffix(".csv"), items, {a.item.item_id: a for a in analyses})
     print(f"Report: {base.with_suffix('.md')}\nCSV:    {base.with_suffix('.csv')}")
     return 0

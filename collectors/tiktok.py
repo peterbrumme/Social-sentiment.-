@@ -11,11 +11,13 @@ from datetime import datetime, timezone
 
 import httpx
 
-from .apify import run_actor
+from .apify import fetch_dataset, run_actor
+from .voice import classify_comment, classify_post
 from .base import BaseCollector, Item, SourceUnavailable, mentions, raise_for_status, with_retry
 
 log = logging.getLogger(__name__)
 ACTOR = "clockworks/tiktok-scraper"
+COMMENTS_PER_POST = 25
 
 
 class TikTokCollector(BaseCollector):
@@ -66,8 +68,10 @@ class TikTokCollector(BaseCollector):
     async def _apify(self) -> list[Item]:
         q = self.builder + (f" {self.market}" if self.market else "")
         rows = await run_actor(ACTOR, {"searchQueries": [q], "resultsPerPage": min(self.limit, 100),
-                                       "commentsPerPost": 5, "shouldDownloadVideos": False})
+                                       "commentsPerPost": COMMENTS_PER_POST, "shouldDownloadVideos": False})
         items: list[Item] = []
+        owners: dict[str, str] = {}          # video url -> author handle (transient, for brand-reply detection)
+        dataset_urls: set[str] = set()
         for r in rows:
             text = r.get("text") or ""
             when = None
@@ -75,6 +79,33 @@ class TikTokCollector(BaseCollector):
                 when = datetime.fromisoformat(r["createTimeISO"].replace("Z", "+00:00"))
             if not text or not mentions(text, self.builder) or not self.in_window(when):
                 continue
+            author = r.get("authorMeta") or {}
+            owner = f"{author.get('name') or ''} {author.get('nickName') or ''}".strip()
             items.append(self.make_item(str(r.get("id")), "video_description", text, created_at=when,
-                                        likes=r.get("diggCount"), replies=r.get("commentCount")))
-        return items[: self.limit]
+                                        likes=r.get("diggCount"), replies=r.get("commentCount"),
+                                        voice=classify_post(text, owner, self.builder)))
+            if r.get("webVideoUrl"):
+                owners[r["webVideoUrl"]] = author.get("name") or ""
+            if r.get("commentsDatasetUrl") and (r.get("commentCount") or 0) > 0:
+                dataset_urls.add(r["commentsDatasetUrl"])
+
+        # Comments are NOT inline: the actor writes them to a separate dataset linked per video.
+        for url in dataset_urls:
+            try:
+                for c in await fetch_dataset(url):
+                    text = c.get("text")
+                    if not text:
+                        continue
+                    video = c.get("videoWebUrl") or c.get("submittedVideoUrl") or ""
+                    when = None
+                    if c.get("createTimeISO"):
+                        when = datetime.fromisoformat(c["createTimeISO"].replace("Z", "+00:00"))
+                    items.append(self.make_item(
+                        str(c.get("cid") or f"{video}:{text[:30]}"), "comment", text, created_at=when,
+                        likes=c.get("diggCount"),
+                        voice=classify_comment(text, c.get("uniqueId") or "", owners.get(video, ""), self.builder)))
+            except Exception as exc:
+                log.warning("tiktok: could not fetch comments dataset (%s); continuing without them", exc)
+        videos = [i for i in items if i.kind == "video_description"][: self.limit]
+        comments = [i for i in items if i.kind == "comment"][: self.limit]
+        return videos + comments
