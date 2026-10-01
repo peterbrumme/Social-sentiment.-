@@ -1,7 +1,6 @@
 """Google Reviews via the Places API (New). Text Search finds listings; Place Details returns reviews.
 
-Limitation: the Places API returns at most 5 "most relevant"/"newest" reviews per place. We query both
-sort orders and across every matching listing (e.g. regional sales offices / model homes).
+Limitation: the Places API returns at most 5 "most relevant"/"newest" reviews per place. We query every matching listing (e.g. regional sales offices / model homes).
 """
 from __future__ import annotations
 
@@ -33,18 +32,17 @@ class GoogleReviewsCollector(BaseCollector):
             for place in places:
                 if len(items) >= self.limit:
                     break
-                for sort in ("MOST_RELEVANT", "NEWEST"):
-                    for rev in await self._reviews(client, key, place["id"], sort):
-                        when = _parse(rev.get("publishTime"))
-                        text = (rev.get("text") or rev.get("originalText") or {}).get("text", "")
-                        if not text or not self.in_window(when):
-                            continue
-                        rid = rev.get("name", f"{place['id']}:{rev.get('publishTime')}:{text[:30]}")
-                        items.setdefault(rid, self.make_item(
-                            rid, "review", text, created_at=when, rating=rev.get("rating"),
-                            extra={"listing": place.get("displayName", {}).get("text"),
-                                   "address": place.get("formattedAddress", "")},
-                        ))
+                for rev in await self._reviews(client, key, place["id"]):
+                    when = _parse(rev.get("publishTime"))
+                    text = (rev.get("text") or rev.get("originalText") or {}).get("text", "")
+                    if not text or not self.in_window(when):
+                        continue
+                    rid = rev.get("name", f"{place['id']}:{rev.get('publishTime')}:{text[:30]}")
+                    items.setdefault(rid, self.make_item(
+                        rid, "review", text, created_at=when, rating=rev.get("rating"),
+                        extra={"listing": place.get("displayName", {}).get("text"),
+                               "address": place.get("formattedAddress", "")},
+                    ))
         return list(items.values())[: self.limit]
 
     async def _search(self, client: httpx.AsyncClient, key: str, query: str) -> list[dict]:
@@ -69,9 +67,9 @@ class GoogleReviewsCollector(BaseCollector):
                 break
         return places
 
-    async def _reviews(self, client: httpx.AsyncClient, key: str, place_id: str, sort: str) -> list[dict]:
+    async def _reviews(self, client: httpx.AsyncClient, key: str, place_id: str) -> list[dict]:
         async def call():
-            r = await client.get(f"{BASE}/places/{place_id}", params={"reviewsSort": sort}, headers={
+            r = await client.get(f"{BASE}/places/{place_id}", headers={
                 "X-Goog-Api-Key": key, "X-Goog-FieldMask": "reviews"})
             raise_for_status(r)
             return r.json()
