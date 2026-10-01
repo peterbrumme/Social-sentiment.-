@@ -42,8 +42,8 @@ def confirm_name(name: str, assume_yes: bool) -> bool:
     return input("Proceed with this name? [y/N] ").strip().lower() in ("y", "yes")
 
 
-async def collect_all(builder: str, market: str | None, days: int, limit: int) -> tuple[list[Item], dict[str, tuple[int, str]]]:
-    collectors = [C(builder, market, days, limit) for C in COLLECTORS]
+async def collect_all(builder: str, market: str | None, days: int, limit: int, communities: list[str] | None = None) -> tuple[list[Item], dict[str, tuple[int, str]]]:
+    collectors = [C(builder, market, days, limit, communities) for C in COLLECTORS]
 
     async def run(c):
         try:
@@ -71,7 +71,12 @@ async def amain(args) -> int:
         status = {c.name: (sum(1 for i in items if i.source == c.name), "SYNTHETIC SAMPLE") for c in COLLECTORS}
     else:
         print(f"Collecting: {args.builder}" + (f" / {args.market}" if args.market else "") + f" (last {args.days} days, ≤{args.limit}/source)")
-        items, status = await collect_all(args.builder, args.market, args.days, args.limit)
+        communities = None
+        if args.communities:
+            from communities import load_communities
+            communities = load_communities(args.communities)
+            print(f"Community mode: {len(communities)} communities from {args.communities}")
+        items, status = await collect_all(args.builder, args.market, args.days, args.limit, communities)
 
     analyses, engine = ([], "n/a")
     customer = [i for i in items if i.voice == "customer"]
@@ -88,7 +93,7 @@ async def amain(args) -> int:
     base = REPORTS / f"{slug}_{stamp}"
     REPORTS.mkdir(exist_ok=True)
     write_report(base.with_suffix(".md"), builder=args.builder, market=args.market, days=args.days, summary=summary,
-                 status=status, engine=engine, synthetic=args.sample_data, items=items)
+                 status=status, engine=engine, synthetic=args.sample_data, items=items, analyses=analyses)
     write_csv(base.with_suffix(".csv"), items, {a.item.item_id: a for a in analyses})
     print(f"Report: {base.with_suffix('.md')}\nCSV:    {base.with_suffix('.csv')}")
     return 0
@@ -100,6 +105,7 @@ def main() -> int:
     ap.add_argument("--market", help='City/metro to narrow results, e.g. "Dallas"')
     ap.add_argument("--days", type=int, default=90, help="Days back to collect (default 90)")
     ap.add_argument("--limit", type=int, default=200, help="Max items per source (default 200)")
+    ap.add_argument("--communities", metavar="FILE", help="CSV (CommunityName column) or text file of community names; searches Google Places per community and adds a per-community breakdown")
     ap.add_argument("--engine", choices=["auto", "openai", "local"], default="auto",
                     help="Sentiment engine: auto = GPT-4o if OPENAI_API_KEY set, else local HuggingFace")
     ap.add_argument("--yes", action="store_true", help="Skip the ambiguous-name confirmation")

@@ -42,7 +42,7 @@ def executive_summary(s: Summary, builder: str, market: str | None, n_sources: i
 
 def write_report(path: Path, *, builder: str, market: str | None, days: int, summary: Summary,
                  status: dict[str, tuple[int, str]], engine: str, synthetic: bool = False,
-                 items: list[Item] | None = None) -> None:
+                 items: list[Item] | None = None, analyses: list | None = None) -> None:
     L: list[str] = []
     title = f"# Market Sentiment Report: {builder}" + (f" — {market}" if market else "")
     L += [title, "",
@@ -89,6 +89,20 @@ def write_report(path: Path, *, builder: str, market: str | None, days: int, sum
         v = voice.get(src, Counter())
         L.append(f"| {src} | {cnt} | {v['customer']} | {v['promotional']} | {msg} |")
     L += ["", f"**Total collected:** {sum(c for c, _ in status.values())} · **Analyzed (relevant):** {summary.total}", ""]
+    comm: dict[str, list] = {}
+    for a in analyses or []:
+        c = a.item.extra.get("community")
+        if c:
+            comm.setdefault(c, []).append(a)
+    if comm:
+        L += ["### Sentiment by Community", "", "| Community | Reviews analyzed | Avg ★ | Positive | Negative |", "|---|---|---|---|---|"]
+        for c, rows in sorted(comm.items(), key=lambda kv: -len(kv[1])):
+            stars = [a.item.rating for a in rows if a.item.rating is not None]
+            pos = sum(a.overall == "positive" for a in rows)
+            neg = sum(a.overall == "negative" for a in rows)
+            L.append(f"| {c} | {len(rows)} | {sum(stars) / len(stars):.1f} | {100 * pos // len(rows)}% | {100 * neg // len(rows)}% |"
+                     if stars else f"| {c} | {len(rows)} | — | {100 * pos // len(rows)}% | {100 * neg // len(rows)}% |")
+        L.append("")
     L += ["## 7. Raw Data Export", "", "All collected items are in the CSV saved next to this report "
           "(author identities are never collected; @handles, emails, phone numbers and street addresses are redacted).", ""]
     path.write_text("\n".join(L), encoding="utf-8")
@@ -97,10 +111,10 @@ def write_report(path: Path, *, builder: str, market: str | None, days: int, sum
 def write_csv(path: Path, items: list[Item], analyses: dict[str, object] | None = None) -> None:
     with path.open("w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
-        w.writerow(["source", "item_id", "kind", "created_at", "rating", "likes", "replies", "url", "voice", "text", "analyzed_overall"])
+        w.writerow(["source", "item_id", "kind", "created_at", "rating", "likes", "replies", "url", "voice", "community", "text", "analyzed_overall"])
         for it in items:
             a = analyses.get(it.item_id) if analyses else None
             w.writerow([it.source, it.item_id, it.kind, it.created_at.isoformat() if it.created_at else "",
                         it.rating if it.rating is not None else "", it.likes if it.likes is not None else "",
-                        it.replies if it.replies is not None else "", it.url or "", it.voice, it.text,
+                        it.replies if it.replies is not None else "", it.url or "", it.voice, it.extra.get("community", ""), it.text,
                         a.overall if a else ""])

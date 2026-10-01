@@ -115,10 +115,21 @@ def mentions(text: str, builder: str) -> bool:
     return re.sub(r"[^a-z0-9]", "", builder.lower()) in norm
 
 
+GENERIC_SUFFIXES = {"builders", "builder", "homes", "home", "construction", "communities", "properties",
+                    "residential", "co", "company", "inc", "llc", "new"}
+
+
+def brand_core(builder: str) -> str:
+    """'Stylecraft Builders' -> 'stylecraft' (listings often use only the distinctive part of the name)."""
+    words = [w for w in re.findall(r"[A-Za-z0-9&'.]+", builder) if w.lower().strip(".") not in GENERIC_SUFFIXES]
+    return re.sub(r"[^a-z0-9]", "", "".join(words).lower()) or re.sub(r"[^a-z0-9]", "", builder.lower())
+
+
 class BaseCollector:
     name: str = "base"
 
-    def __init__(self, builder: str, market: str | None, days: int, limit: int):
+    def __init__(self, builder: str, market: str | None, days: int, limit: int, communities: list[str] | None = None):
+        self.communities = communities or []
         self.builder = builder
         self.market = market
         self.days = days

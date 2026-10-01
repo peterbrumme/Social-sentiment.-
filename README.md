@@ -26,6 +26,10 @@ python main.py --builder "Ryan Homes" --sample-data     # synthetic data, pipeli
 
 Flags: `--builder` (required), `--market`, `--days` (default 90), `--limit` per source (default 200),
 `--engine auto|openai|local`, `--yes` (skip ambiguous-name prompt), `-v`.
+`--communities FILE` takes a CSV with a `CommunityName` column (or a text file, one name per line). Sub-communities
+("Yaupon Trails - Townhomes") collapse to their parent. Google Places is searched once per community and the report
+gains a per-community breakdown. Example: `python main.py --builder "Stylecraft Builders" --communities communities.csv --days 3650`.
+
 Output lands in `reports/<builder>_<market>_<timestamp>.md` and `.csv`.
 
 ## API keys
